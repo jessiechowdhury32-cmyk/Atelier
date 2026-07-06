@@ -1,5 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Shirt, Sparkles, Palette, TrendingUp, Upload, Loader2, X, ShoppingBag, Camera, Wand2 } from "lucide-react";
+import { db } from "./firebase.js";
+import { collection, addDoc, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp } from "firebase/firestore";
 
 const INK = "#1A1A1A";
 const PAPER = "#F0EEE6";
@@ -110,6 +112,15 @@ export default function App() {
   const [tryonResult, setTryonResult] = useState(null);
   const [tryonError, setTryonError] = useState("");
 
+  // Load closet items from Firestore and keep them in sync in real time
+  useEffect(() => {
+    const q = query(collection(db, "closetItems"), orderBy("createdAt", "asc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setItems(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsubscribe();
+  }, []);
+
   async function handleUploadItem(e) {
     const file = e.target.files[0];
     e.target.value = "";
@@ -133,10 +144,11 @@ export default function App() {
         ],
       });
       const parsed = parseJSON(text);
-      setItems((prev) => [
-        ...prev,
-        { id: Date.now().toString(), thumb: `data:${mediaType};base64,${data}`, ...parsed },
-      ]);
+      await addDoc(collection(db, "closetItems"), {
+        thumb: `data:${mediaType};base64,${data}`,
+        ...parsed,
+        createdAt: serverTimestamp(),
+      });
     } catch (err) {
       setClosetError("Couldn't read that item. Try a clearer photo, one garment at a time.");
     } finally {
@@ -144,8 +156,8 @@ export default function App() {
     }
   }
 
-  function removeItem(id) {
-    setItems((prev) => prev.filter((i) => i.id !== id));
+  async function removeItem(id) {
+    await deleteDoc(doc(db, "closetItems", id));
   }
 
   async function handleGetOutfit() {
@@ -464,107 +476,7 @@ export default function App() {
           <section>
             <h2 className="text-2xl mb-1" style={headStyle}>Try it on</h2>
             <p className="text-sm mb-6" style={{ color: `${INK}88` }}>
-              Photorealistic try-on runs through FASHN's API via your own proxy server — see the
-              tryon-proxy README for a 10-minute setup.
+              Photorealistic try-on runs through your own proxy server — see the README for setup.
             </p>
 
-            <label className="block text-[11px] uppercase mb-1" style={labelStyle}>Proxy URL</label>
-            <input
-              value={proxyUrl}
-              onChange={(e) => setProxyUrl(e.target.value)}
-              placeholder="https://your-project.vercel.app/api/tryon"
-              className="w-full px-3 py-2 text-sm rounded-sm border outline-none mb-5"
-              style={{ borderColor: `${INK}33`, background: PAPER }}
-            />
-
-            <div className="grid sm:grid-cols-2 gap-6 mb-6">
-              <div>
-                <p className="text-[11px] uppercase mb-2" style={labelStyle}>1. Your photo</p>
-                {bodyPhoto ? (
-                  <img src={bodyPhoto} alt="You" className="w-full h-56 object-cover rounded-sm mb-2" />
-                ) : (
-                  <div className="w-full h-56 rounded-sm border border-dashed flex items-center justify-center mb-2" style={{ borderColor: `${INK}33` }}>
-                    <span className="text-xs" style={{ color: `${INK}66` }}>Full-body, plain background works best</span>
-                  </div>
-                )}
-                <label className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-sm cursor-pointer" style={{ background: INK, color: PAPER }}>
-                  <Camera size={16} /> Upload photo
-                  <input type="file" accept="image/*" onChange={handleUploadBodyPhoto} className="hidden" />
-                </label>
-              </div>
-
-              <div>
-                <p className="text-[11px] uppercase mb-2" style={labelStyle}>2. Pick a garment</p>
-                {items.length === 0 ? (
-                  <p className="text-sm" style={{ color: `${INK}77` }}>Add items in the Closet tab first.</p>
-                ) : (
-                  <div className="grid grid-cols-3 gap-2">
-                    {items.map((item) => (
-                      <button
-                        key={item.id}
-                        onClick={() => setTryonGarmentId(item.id)}
-                        className="rounded-sm overflow-hidden"
-                        style={{ border: tryonGarmentId === item.id ? `2px solid ${RED}` : `1px solid ${INK}22` }}
-                      >
-                        <img src={item.thumb} alt={item.category} className="w-full h-16 object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <button
-              onClick={handleTryOn}
-              disabled={tryonLoading}
-              className="flex items-center gap-2 px-4 py-2 text-sm rounded-sm mb-6"
-              style={{ background: RED, color: PAPER }}
-            >
-              {tryonLoading ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
-              {tryonLoading ? "Generating (up to a minute)…" : "Generate try-on"}
-            </button>
-
-            {tryonError && <p className="text-sm mb-4" style={{ color: RED }}>{tryonError}</p>}
-
-            {tryonResult && (
-              <div>
-                <p className="text-[11px] uppercase mb-2" style={labelStyle}>Result</p>
-                <img src={tryonResult} alt="Try-on result" className="w-full max-w-sm rounded-sm" style={{ border: `1px solid ${INK}22` }} />
-              </div>
-            )}
-          </section>
-        )}
-
-        {tab === "trends" && (
-          <section>
-            <h2 className="text-2xl mb-1" style={headStyle}>Trend forecast</h2>
-            <p className="text-sm mb-6" style={{ color: `${INK}88` }}>
-              A live pull of what's trending right now.
-            </p>
-            <button
-              onClick={handleGetTrends}
-              disabled={trendsLoading}
-              className="flex items-center gap-2 px-4 py-2 text-sm rounded-sm mb-6"
-              style={{ background: SAGE, color: PAPER }}
-            >
-              {trendsLoading ? <Loader2 size={16} className="animate-spin" /> : <TrendingUp size={16} />}
-              {trendsLoading ? "Scanning the runway…" : "Get today's trends"}
-            </button>
-
-            {trendsError && <p className="text-sm mb-4" style={{ color: RED }}>{trendsError}</p>}
-
-            {trendsText && (
-              <div className="text-sm leading-relaxed whitespace-pre-wrap p-4 rounded-sm" style={{ background: PAPER, border: `1px solid ${INK}1a` }}>
-                {trendsText}
-              </div>
-            )}
-          </section>
-        )}
-      </main>
-
-      <footer className="max-w-3xl mx-auto px-6 py-5 text-[11px]" style={{ ...labelStyle, color: `${INK}66` }}>
-        MVP DEMO — DATA RESETS ON REFRESH — TRY-ON NEEDS YOUR OWN PROXY (SEE README)
-      </footer>
-    </div>
-  );
-}
+            <label className="block text-[11px] uppercase mb-1" style={label
